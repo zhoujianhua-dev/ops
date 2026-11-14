@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>我的钱包 - 校园易站</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>易</text></svg>">
+</head>
+<body>
+<div class="nav" id="nav"></div>
+<div class="container" style="max-width:860px;">
+  <h1 class="page-title">我的钱包</h1>
+  <div class="wallet-hero">
+    <div class="wh-label">账户余额（元）</div>
+    <div class="wh-num" id="balance">¥0.00</div>
+    <div class="wh-chips"><span>💰 充值秒到</span><span>🧾 流水可溯</span><span>🔒 冻结保护</span></div>
+  </div>
+  <div class="card">
+    <h3 style="margin-bottom:10px;">余额充值</h3>
+    <div id="payinfo"></div>
+    <div class="msg" id="rmsg"></div>
+    <div class="flex-between">
+      <input id="ramount" type="number" min="1" step="0.01" placeholder="充值金额（元）" style="max-width:260px;">
+      <button class="btn" onclick="reqRecharge()">提交充值申请</button>
+    </div>
+    <div class="muted" style="margin-top:8px;">按上方收款方式付款后提交申请，管理员确认到账后余额自动增加</div>
+    <div id="myrr" style="margin-top:10px;"></div>
+  </div>
+  <div class="card">
+    <h3 style="margin-bottom:10px;">提现（管理员打款）</h3>
+    <div class="msg" id="wmsg"></div>
+    <div class="flex-between">
+      <input id="wamount" type="number" min="1" step="0.01" placeholder="提现金额（元）" style="max-width:260px;">
+      <button class="btn" onclick="reqWithdraw()">申请提现</button>
+    </div>
+    <div class="muted" style="margin-top:8px;">提交后金额立即冻结；管理员打款后完成，若被拒绝将自动退回余额</div>
+    <div id="mywd" style="margin-top:10px;"></div>
+  </div>
+  <div class="card">
+    <h3 style="margin-bottom:10px;">修改密码</h3>
+    <div class="msg" id="pwdmsg"></div>
+    <div class="flex-between" style="flex-wrap:wrap;gap:8px;">
+      <input id="oldpwd" type="password" placeholder="原密码" style="max-width:200px;">
+      <input id="newpwd" type="password" placeholder="新密码（至少6位）" style="max-width:200px;">
+      <input id="newpwd2" type="password" placeholder="确认新密码" style="max-width:200px;">
+      <button class="btn" onclick="changePwd()">修改密码</button>
+    </div>
+  </div>
+  <div class="card">
+    <h3 style="margin-bottom:10px;">资金流水（跑流水 · 每笔都有记录）</h3>
+    <div id="tx"></div>
+  </div>
+</div>
+<script src="js/common.js"></script>
+<script>
+const TX = {0:'充值',1:'商品消费',2:'快递消费',3:'代拿收入',4:'商品收入',5:'退款',6:'提现'};
+const RR_ST = {0:'待确认', 1:'已到账', 2:'已拒绝'};
+const WD_ST = {0:'打款中', 1:'已打款', 2:'已拒绝退回'};
+async function init(){
+  try{ await requireLogin(); }catch(e){ return; }
+  const w = await api('/api/wallet');
+  document.getElementById('balance').textContent = money(w.balance);
+  renderTx(w.recent);
+  loadPayInfo(); loadMyRR(); loadMyWD();
+}
+async function loadPayInfo(){
+  try{
+    const p = await api('/api/wallet/pay-info');
+    let h = '';
+    if(p.pay_qr_b64) h += '<img src="data:image/png;base64,'+p.pay_qr_b64+'" style="max-width:180px;display:block;margin-bottom:8px;border:1px solid var(--border);">';
+    if(p.pay_wechat) h += '<div>微信号：<b>'+esc(p.pay_wechat)+'</b></div>';
+    if(p.pay_alipay) h += '<div>支付宝：<b>'+esc(p.pay_alipay)+'</b></div>';
+    if(p.pay_note) h += '<div class="muted" style="margin-top:4px;">'+esc(p.pay_note)+'</div>';
+    if(!h) h = '<div class="muted">管理员尚未设置收款方式，请联系管理员</div>';
+    document.getElementById('payinfo').innerHTML = h;
+  }catch(e){ document.getElementById('payinfo').innerHTML = '<div class="muted">收款信息加载失败</div>'; }
+}
+async function reqRecharge(){
+  try{
+    const amount = parseFloat(document.getElementById('ramount').value);
+    if(!(amount>0)){ showMsg('rmsg','请输入正确的金额', false); return; }
+    const r = await api('/api/wallet/recharge-request', {method:'POST', body:{amount}});
+    showMsg('rmsg', r.msg, true);
+    document.getElementById('ramount').value = '';
+    loadMyRR();
+  }catch(e){ showMsg('rmsg', e.message, false); }
+}
+async function loadMyRR(){
+  try{
+    const rows = await api('/api/wallet/recharge-requests');
+    const box = document.getElementById('myrr');
+    if(!rows.length){ box.innerHTML = '<div class="muted">暂无充值申请</div>'; return; }
+    box.innerHTML = '<table><tr><th>时间</th><th>金额</th><th>状态</th></tr>' +
+      rows.map(x => '<tr><td>'+fmtTime(x.created_at)+'</td><td>'+money(x.amount)+'</td>'
+        + '<td>'+badge(x.status, RR_ST)+'</td></tr>').join('') + '</table>';
+  }catch(e){}
+}
+async function reqWithdraw(){
+  try{
+    const amount = parseFloat(document.getElementById('wamount').value);
+    if(!(amount>0)){ showMsg('wmsg','请输入正确的金额', false); return; }
+    const r = await api('/api/wallet/withdraw-request', {method:'POST', body:{amount}});
+    showMsg('wmsg', r.msg, true);
+    document.getElementById('wamount').value = '';
+    loadMyWD(); init();
+  }catch(e){ showMsg('wmsg', e.message, false); }
+}
+async function loadMyWD(){
+  try{
+    const rows = await api('/api/wallet/withdraw-requests');
+    const box = document.getElementById('mywd');
+    if(!rows.length){ box.innerHTML = '<div class="muted">暂无提现申请</div>'; return; }
+    box.innerHTML = '<table><tr><th>时间</th><th>金额</th><th>状态</th></tr>' +
+      rows.map(x => '<tr><td>'+fmtTime(x.created_at)+'</td><td>'+money(x.amount)+'</td>'
+        + '<td>'+badge(x.status, WD_ST)+'</td></tr>').join('') + '</table>';
+  }catch(e){}
+}
+async function changePwd(){
+  try{
+    const o = document.getElementById('oldpwd').value;
+    const n = document.getElementById('newpwd').value;
+    const n2 = document.getElementById('newpwd2').value;
+    if(!o || n.length<6){ showMsg('pwdmsg','新密码至少 6 位', false); return; }
+    if(n!==n2){ showMsg('pwdmsg','两次输入的新密码不一致', false); return; }
+    const r = await api('/api/auth/password', {method:'POST', body:{old:o, new:n}});
+    showMsg('pwdmsg', r.msg || '密码已修改', true);
+    document.getElementById('oldpwd').value = '';
+    document.getElementById('newpwd').value = '';
+    document.getElementById('newpwd2').value = '';
+  }catch(e){ showMsg('pwdmsg', e.message, false); }
+}
+function renderTx(rows){
+  const box = document.getElementById('tx');
+  if(!rows.length){ box.innerHTML = '<div class="empty">暂无流水记录</div>'; return; }
+  box.innerHTML = '<table><tr><th>时间</th><th>类型</th><th>订单号</th><th>金额</th><th>余额</th><th>备注</th></tr>' +
+    rows.map(t => '<tr><td>'+fmtTime(t.created_at)+'</td><td>'+esc(TX[t.biz_type]||t.biz_type)+'</td>'
+      + '<td>'+esc(t.order_no||'-')+'</td>'
+      + '<td class="'+(t.amount>=0?'text-ok':'text-danger')+'">'+(t.amount>=0?'+':'')+money(t.amount)+'</td>'
+      + '<td>'+money(t.balance_after)+'</td><td class="muted">'+esc(t.remark||'')+'</td></tr>').join('') + '</table>';
+}
+renderNav('wallet.html').then(init);
+</script>
+</body>
+</html>
