@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发布代拿 - 校园易站</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>易</text></svg>">
+</head>
+<body>
+<div class="nav" id="nav"></div>
+<div class="container" style="max-width:640px;">
+  <div class="card">
+    <h2 class="page-title">发布快递代拿</h2>
+    <div class="msg" id="msg"></div>
+    <div class="form-row"><label>取件点</label><select id="point"></select></div>
+    <div class="grid grid-2">
+      <div class="form-row"><label>快递公司</label><input id="company" placeholder="中通/顺丰/圆通…"></div>
+      <div class="form-row"><label>快递单号</label><input id="expressNo" placeholder="选填"></div>
+    </div>
+    <div class="form-row"><label>取件码（加密存储，接单后跑腿者可见）</label><input id="pickupCode" placeholder="如：A1B2C3"></div>
+    <div class="form-row"><label>送达地址</label><input id="address" placeholder="如：3号宿舍楼502"></div>
+    <div class="grid grid-2">
+      <div class="form-row"><label>收件联系人</label><input id="contact" placeholder="选填"></div>
+      <div class="form-row"><label>收件手机（加密存储）</label><input id="phone" placeholder="选填"></div>
+    </div>
+    <div class="form-row"><label>跑腿费（元）</label><input id="fee" type="number" value="3.00" min="0.5" step="0.5"></div>
+    <div class="form-row"><label>备注</label><input id="remark" placeholder="选填，如：尽快取，冰鲜"></div>
+    <button class="btn" onclick="submit()">发布（余额支付跑腿费）</button>
+    <span class="muted" style="margin-left:10px;">余额：<span id="balance">-</span></span>
+  </div>
+  <div class="card">
+    <h3 style="margin-bottom:12px;">我发布的代拿</h3>
+    <div id="mine"></div>
+  </div>
+</div>
+<script src="js/common.js"></script>
+<script>
+async function init(){
+  try{ await requireLogin(); }catch(e){ return; }
+  const me = await loadUser();
+  document.getElementById('balance').textContent = money(me.balance);
+  const pts = await api('/api/parcels/points');
+  const sel = document.getElementById('point');
+  pts.forEach(p => { const o=document.createElement('option'); o.value=p.id; o.textContent=p.name+'（'+p.address+'）'; sel.appendChild(o); });
+  loadMine();
+}
+async function submit(){
+  try{
+    const body = {
+      point_id: parseInt(document.getElementById('point').value)||0,
+      express_company: document.getElementById('company').value.trim(),
+      express_no: document.getElementById('expressNo').value.trim(),
+      pickup_code: document.getElementById('pickupCode').value.trim(),
+      deliver_address: document.getElementById('address').value.trim(),
+      deliver_contact: document.getElementById('contact').value.trim(),
+      deliver_phone: document.getElementById('phone').value.trim(),
+      fee: parseFloat(document.getElementById('fee').value),
+      remark: document.getElementById('remark').value.trim(),
+    };
+    if(!body.deliver_address){ showMsg('msg','请填写送达地址', false); return; }
+    if(!(body.fee>0)){ showMsg('msg','跑腿费必须大于0', false); return; }
+    const r = await api('/api/parcels', {method:'POST', body});
+    showMsg('msg', r.msg + '（订单号 ' + r.order_no + '）', true);
+    await loadUser();
+    document.getElementById('balance').textContent = money(CURRENT_USER.balance);
+    loadMine();
+  }catch(e){ showMsg('msg', e.message, false); }
+}
+async function loadMine(){
+  const rows = await api('/api/parcels/mine');
+  const box = document.getElementById('mine');
+  if(!rows.length){ box.innerHTML = '<div class="empty">还没有发布过代拿需求</div>'; return; }
+  box.innerHTML = '<table><tr><th>订单号</th><th>取件点</th><th>送达地址</th><th>跑腿费</th><th>状态</th><th>接单人</th><th>操作</th></tr>' +
+    rows.map(p => '<tr><td>'+p.order_no+'</td><td>'+esc(p.point_name)+'</td><td>'+esc(p.deliver_address)+'</td>'
+      + '<td>'+money(p.fee)+'</td><td>'+badge(p.status, STATUS_PARCEL)+'</td><td>'+esc(p.courier_name)+'</td>'
+      + '<td>'+(p.status===0 ? '<button class="btn btn-danger btn-sm" onclick="cancel('+p.id+')">取消</button>' : '')+'</td></tr>').join('') + '</table>';
+}
+async function cancel(oid){
+  if(!confirm('确认取消该代拿？跑腿费将退回余额。')) return;
+  try{
+    await api('/api/parcels/'+oid+'/cancel', {method:'POST'});
+    showMsg('msg','已取消，跑腿费已退回', true);
+    loadMine();
+  }catch(e){ showMsg('msg', e.message, false); }
+}
+renderNav('publish_parcel.html').then(init);
+</script>
+</body>
+</html>
