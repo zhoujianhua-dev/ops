@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理后台 - 校园易站</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>易</text></svg>">
+</head>
+<body>
+<div class="nav" id="nav"></div>
+<div class="container">
+  <h1 class="page-title">管理后台（仅管理员）</h1>
+  <div class="msg" id="msg"></div>
+
+  <div class="stats-row" id="stats"></div>
+
+  <div class="card">
+    <div class="flex-between">
+      <h3>商品审核</h3>
+      <div class="actions">
+        <button class="btn btn-outline btn-sm" onclick="loadGoods(-1)">全部</button>
+        <button class="btn btn-outline btn-sm" onclick="loadGoods(0)">待审核</button>
+      </div>
+    </div>
+    <div id="goodsBox" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="tabs" style="margin-top:6px;">
+    <button class="active" onclick="switchSec('users')">用户管理</button>
+    <button onclick="switchSec('orders')">订单总览</button>
+    <button onclick="switchSec('ledger')">全平台流水</button>
+    <button onclick="switchSec('rr')">充值审核</button>
+    <button onclick="switchSec('wd')">提现审核</button>
+    <button onclick="switchSec('pay')">收款设置</button>
+  </div>
+  <div id="sec-users"></div>
+  <div id="sec-orders" style="display:none;"></div>
+  <div id="sec-ledger" style="display:none;"></div>
+  <div id="sec-rr" style="display:none;"></div>
+  <div id="sec-wd" style="display:none;"></div>
+  <div id="sec-pay" style="display:none;"></div>
+</div>
+<script src="js/common.js"></script>
+<script>
+async function init(){
+  try{ await requireRole('admin'); }catch(e){ return; }
+  loadStats();
+  loadGoods(0);
+  loadUsers(); loadOrders(); loadLedger();
+  loadRR(); loadWD(); loadPay();
+}
+const RR_ST = {0:'待确认', 1:'已到账', 2:'已拒绝'};
+const WD_ST = {0:'打款中', 1:'已打款', 2:'已拒绝退回'};
+async function loadRR(){
+  const rows = await api('/api/admin/recharge-requests?status=0');
+  const box = document.getElementById('sec-rr');
+  let h = '<div class="card"><h4 style="margin-bottom:8px;">待确认充值申请（用户已付款，核对收款记录后确认）</h4>';
+  if(!rows.length){ h += '<div class="empty">暂无待确认申请</div>'; }
+  else {
+    h += '<table><tr><th>ID</th><th>用户</th><th>金额</th><th>申请时间</th><th>操作</th></tr>' +
+      rows.map(x => '<tr><td>'+x.id+'</td><td>'+esc(x.username)+'('+esc(x.nickname||'')+')</td><td>'+money(x.amount)+'</td><td>'+fmtTime(x.created_at)+'</td>'
+        + '<td class="actions"><button class="btn btn-sm" onclick="rrAct('+x.id+',\'approve\')">确认到账</button>'
+        + '<button class="btn btn-danger btn-sm" onclick="rrAct('+x.id+',\'reject\')">拒绝</button></td></tr>').join('') + '</table>';
+  }
+  h += '</div>';
+  box.innerHTML = h;
+}
+async function rrAct(rid, action){
+  if(!confirm('确认操作？')) return;
+  try{ const r = await api('/api/admin/recharge-requests/'+rid+'/'+action, {method:'POST'}); showMsg('msg', r.msg, true); loadRR(); loadUsers(); loadLedger(); }catch(e){ showMsg('msg', e.message, false); }
+}
+async function loadWD(){
+  const rows = await api('/api/admin/withdraw-requests?status=0');
+  const box = document.getElementById('sec-wd');
+  let h = '<div class="card"><h4 style="margin-bottom:8px;">打款中的提现申请（款项已冻结，线下打款后确认）</h4>';
+  if(!rows.length){ h += '<div class="empty">暂无提现申请</div>'; }
+  else {
+    h += '<table><tr><th>ID</th><th>用户</th><th>金额</th><th>流水号</th><th>申请时间</th><th>操作</th></tr>' +
+      rows.map(x => '<tr><td>'+x.id+'</td><td>'+esc(x.username)+'('+esc(x.nickname||'')+')</td><td>'+money(x.amount)+'</td><td class="muted">'+esc(x.order_no||'-')+'</td><td>'+fmtTime(x.created_at)+'</td>'
+        + '<td class="actions"><button class="btn btn-sm" onclick="wdAct('+x.id+',\'approve\')">已打款确认</button>'
+        + '<button class="btn btn-danger btn-sm" onclick="wdAct('+x.id+',\'reject\')">拒绝退回</button></td></tr>').join('') + '</table>';
+  }
+  h += '</div>';
+  box.innerHTML = h;
+}
+async function wdAct(wid, action){
+  if(!confirm('确认操作？')) return;
+  try{ const r = await api('/api/admin/withdraw-requests/'+wid+'/'+action, {method:'POST'}); showMsg('msg', r.msg, true); loadWD(); loadUsers(); loadLedger(); }catch(e){ showMsg('msg', e.message, false); }
+}
+async function loadPay(){
+  const p = await api('/api/admin/pay-settings');
+  const box = document.getElementById('sec-pay');
+  box.innerHTML = '<div class="card"><h4 style="margin-bottom:8px;">收款方式设置（展示在用户钱包页）</h4>'
+    + '<div class="form-row"><label>微信号</label><input id="pay_wechat" value="'+esc(p.pay_wechat||'')+'" style="max-width:320px;"></div>'
+    + '<div class="form-row"><label>支付宝</label><input id="pay_alipay" value="'+esc(p.pay_alipay||'')+'" style="max-width:320px;"></div>'
+    + '<div class="form-row"><label>说明</label><input id="pay_note" value="'+esc(p.pay_note||'')+'" placeholder="如：付款请备注用户名" style="max-width:420px;"></div>'
+    + '<div class="form-row"><label>收款码</label><textarea id="pay_qr_b64" rows="3" style="width:420px;" placeholder="收款码图片的 base64（可选）">'+esc(p.pay_qr_b64||'')+'</textarea></div>'
+    + '<button class="btn" onclick="savePay()">保存收款设置</button></div>';
+}
+async function savePay(){
+  try{
+    const r = await api('/api/admin/pay-settings', {method:'POST', body:{
+      pay_wechat: document.getElementById('pay_wechat').value,
+      pay_alipay: document.getElementById('pay_alipay').value,
+      pay_note: document.getElementById('pay_note').value,
+      pay_qr_b64: document.getElementById('pay_qr_b64').value}});
+    showMsg('msg', r.msg, true);
+  }catch(e){ showMsg('msg', e.message, false); }
+}
+async function loadStats(){
+  const s = await api('/api/admin/stats');
+  const box = document.getElementById('stats');
+  box.innerHTML =
+    '<div class="stat"><div class="num">'+s.users+'</div><div class="label">注册用户</div></div>'
+    + '<div class="stat"><div class="num">'+s.goods+'</div><div class="label">在售商品</div></div>'
+    + '<div class="stat"><div class="num">'+s.pending_goods+'</div><div class="label">待审核</div></div>'
+    + '<div class="stat"><div class="num">'+s.waiting_parcels+'</div><div class="label">待接单快递</div></div>'
+    + '<div class="stat"><div class="num">'+money(s.total_gmv)+'</div><div class="label">平台总流水</div></div>'
+    + '<button class="btn btn-outline btn-sm" style="align-self:center;" onclick="refreshDaily()">刷新销售日报</button>';
+}
+async function refreshDaily(){
+  try{ const r = await api('/api/admin/refresh-daily', {method:'POST'}); showMsg('msg', r.msg, true); loadStats(); }catch(e){ showMsg('msg', e.message, false); }
+}
+async function loadGoods(status){
+  const rows = await api('/api/admin/goods?status='+status);
+  const box = document.getElementById('goodsBox');
+  if(!rows.length){ box.innerHTML = '<div class="empty">暂无商品</div>'; return; }
+  box.innerHTML = '<table><tr><th>ID</th><th>标题</th><th>卖家</th><th>价格</th><th>状态</th><th>操作</th></tr>' +
+    rows.map(g => '<tr><td>'+g.id+'</td><td><a href="goods_detail.html?id='+g.id+'">'+esc(g.title)+'</a></td>'
+      + '<td>'+esc(g.seller_name)+'</td><td>'+money(g.price)+'</td><td>'+badge(g.status, STATUS_GOODS)+'</td>'
+      + '<td class="actions">'
+      + (g.status===0 ? '<button class="btn btn-sm" onclick="audit('+g.id+',\'approve\')">通过上架</button><button class="btn btn-danger btn-sm" onclick="audit('+g.id+',\'reject\')">拒绝</button>' : '')
+      + (g.status===2 ? '<button class="btn btn-outline btn-sm" onclick="audit('+g.id+',\'restore\')">恢复上架</button>' : '')
+      + (g.status===1 ? '<button class="btn btn-danger btn-sm" onclick="audit('+g.id+',\'reject\')">下架</button>' : '')
+      + '</td></tr>').join('') + '</table>';
+}
+async function audit(gid, action){
+  if(!confirm('确认操作？')) return;
+  try{ await api('/api/admin/goods/'+gid+'/audit', {method:'POST', body:{action}}); showMsg('msg','操作成功', true); loadGoods(0); loadStats(); }catch(e){ showMsg('msg', e.message, false); }
+}
+async function loadUsers(){
+  const rows = await api('/api/admin/users');
+  const box = document.getElementById('sec-users');
+  box.innerHTML = '<div class="card"><table><tr><th>ID</th><th>用户名</th><th>昵称</th><th>余额</th><th>角色</th><th>跑腿</th><th>状态</th><th>操作</th></tr>' +
+    rows.map(u => '<tr><td>'+u.id+'</td><td>'+esc(u.username)+'</td><td>'+esc(u.nickname)+'</td><td>'+money(u.balance)+'</td>'
+      + '<td>'+esc(u.roles||'')+'</td><td>'+(u.is_courier?'是':'否')+'</td>'
+      + '<td>'+badge(u.status, {1:'正常',0:'禁用'})+'</td>'
+      + '<td><button class="btn btn-'+(u.status===1?'danger':'outline')+' btn-sm" onclick="toggleUser('+u.id+')">'+(u.status===1?'禁用':'启用')+'</button></td></tr>').join('') + '</table></div>';
+}
+async function toggleUser(uid){
+  if(!confirm('确认切换该用户状态？')) return;
+  try{ await api('/api/admin/users/'+uid+'/toggle', {method:'POST'}); loadUsers(); }catch(e){ showMsg('msg', e.message, false); }
+}
+async function loadOrders(){
+  const r = await api('/api/admin/orders');
+  const box = document.getElementById('sec-orders');
+  let h = '<div class="card"><h4 style="margin-bottom:8px;">商品订单</h4>';
+  h += '<table><tr><th>订单号</th><th>买家</th><th>卖家</th><th>金额</th><th>状态</th><th>时间</th></tr>';
+  h += (r.goods||[]).map(o => '<tr><td>'+o.order_no+'</td><td>#'+o.buyer_id+'</td><td>#'+o.seller_id+'</td><td>'+money(o.total_amount)+'</td><td>'+badge(o.status, STATUS_ORDER)+'</td><td>'+fmtTime(o.created_at)+'</td></tr>').join('');
+  h += '</table></div><div class="card"><h4 style="margin-bottom:8px;">快递代拿</h4><table><tr><th>订单号</th><th>发布人</th><th>接单人</th><th>跑腿费</th><th>状态</th><th>时间</th></tr>';
+  h += (r.parcels||[]).map(o => '<tr><td>'+o.order_no+'</td><td>#'+o.publisher_id+'</td><td>'+(o.courier_id?'#'+o.courier_id:'-')+'</td><td>'+money(o.total_amount)+'</td><td>'+badge(o.status, STATUS_PARCEL)+'</td><td>'+fmtTime(o.created_at)+'</td></tr>').join('');
+  h += '</table></div>';
+  box.innerHTML = h;
+}
+async function loadLedger(){
+  const rows = await api('/api/admin/ledger');
+  const box = document.getElementById('sec-ledger');
+  box.innerHTML = '<div class="card"><table><tr><th>ID</th><th>用户</th><th>类型</th><th>订单号</th><th>金额</th><th>余额</th><th>时间</th><th>备注</th></tr>' +
+    rows.map(t => '<tr><td>'+t.id+'</td><td>'+esc(t.nickname)+'</td><td>'+esc(BIZ_TYPE[t.biz_type]||t.biz_type)+'</td><td>'+esc(t.order_no||'-')+'</td>'
+      + '<td class="'+(t.amount>=0?'text-ok':'text-danger')+'">'+(t.amount>=0?'+':'')+money(t.amount)+'</td>'
+      + '<td>'+money(t.balance_after)+'</td><td>'+fmtTime(t.created_at)+'</td><td class="muted">'+esc(t.remark||'')+'</td></tr>').join('') + '</table></div>';
+}
+function switchSec(k){
+  document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tabs button')[['users','orders','ledger','rr','wd','pay'].indexOf(k)].classList.add('active');
+  ['users','orders','ledger','rr','wd','pay'].forEach(x=>document.getElementById('sec-'+x).style.display = x===k?'block':'none');
+  if(k==='rr') loadRR();
+  if(k==='wd') loadWD();
+}
+renderNav('admin.html').then(init);
+</script>
+</body>
+</html>
