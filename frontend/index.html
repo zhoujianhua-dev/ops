@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>二手集市 - 校园易站</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>易</text></svg>">
+</head>
+<body>
+<div class="nav" id="nav"></div>
+<div class="container">
+  <div class="hero">
+    <div class="hero-badge">🎉 校园二手集市 · 快递代拿 一体化平台</div>
+    <h1 class="hero-title">让闲置流转，让跑腿更近</h1>
+    <p class="hero-sub">买卖闲置 · 快递代拿 · 余额钱包 —— 校园生活一站搞定</p>
+    <div class="hero-actions">
+      <a class="btn btn-light" href="publish_goods.html">＋ 发布闲置</a>
+      <a class="btn btn-ghost" href="parcels.html">📦 快递代拿</a>
+    </div>
+  </div>
+
+  <div class="card" id="hotCard" style="display:none;">
+    <div class="flex-between"><h3>🔥 热门商品 <span class="muted">(Redis 缓存 · <span id="hotSource"></span>)</span></h3></div>
+    <div class="grid grid-4" id="hotList" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="filter-bar card" style="padding:12px;">
+    <select id="catSel"><option value="0">全部分类</option></select>
+    <input id="kw" placeholder="搜索标题/描述…" style="flex:1;min-width:200px;">
+    <button class="btn" onclick="loadGoods()">搜索</button>
+  </div>
+
+  <div class="grid grid-4" id="goodsList"></div>
+  <div class="empty" id="empty" style="display:none;">暂无在售商品</div>
+  <div class="flex-between" style="margin-top:14px;">
+    <span class="muted" id="pageInfo"></span>
+    <div class="actions">
+      <button class="btn btn-outline btn-sm" onclick="prev()">上一页</button>
+      <button class="btn btn-outline btn-sm" onclick="next()">下一页</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/common.js"></script>
+<script>
+let PAGE = 1, TOTAL = 0;
+
+async function loadCats(){
+  const cats = await api('/api/goods/categories');
+  const sel = document.getElementById('catSel');
+  cats.forEach(c => { const o = document.createElement('option'); o.value = c.id; o.textContent = c.name; sel.appendChild(o); });
+}
+async function loadHot(){
+  try {
+    const r = await api('/api/goods/hot');
+    document.getElementById('hotCard').style.display = 'block';
+    document.getElementById('hotSource').textContent = r.source === 'cache' ? '命中缓存' : '查数据库';
+    const box = document.getElementById('hotList');
+    box.innerHTML = (r.items || []).map(g => gCard(g)).join('') || '<div class="muted">暂无</div>';
+  } catch(e){}
+}
+function gCard(g){
+  return '<a class="g-card" href="goods_detail.html?id='+g.id+'">'
+    + '<div class="g-cover">'+(g.cover? '<img src="'+esc(g.cover)+'">' : '📦')+'</div>'
+    + '<div class="g-body"><div class="g-title">'+esc(g.title)+'</div>'
+    + '<div class="g-price">'+money(g.price)+'</div>'
+    + '<div class="g-meta">'+esc(g.category_name||'')+' · 浏览 '+g.view_count+'</div></div></a>';
+}
+async function loadGoods(){
+  try{
+    const cat = document.getElementById('catSel').value;
+    const kw = document.getElementById('kw').value.trim();
+    const r = await api('/api/goods?category_id='+cat+'&kw='+encodeURIComponent(kw)+'&page='+PAGE+'&size=12');
+    TOTAL = r.total;
+    const box = document.getElementById('goodsList');
+    box.innerHTML = (r.items || []).map(gCard).join('');
+    document.getElementById('empty').style.display = r.items.length ? 'none' : 'block';
+    const pages = Math.max(1, Math.ceil(TOTAL/12));
+    document.getElementById('pageInfo').textContent = '共 '+TOTAL+' 件 · 第 '+PAGE+'/'+pages+' 页';
+  }catch(e){}
+}
+function prev(){ if(PAGE>1){ PAGE--; loadGoods(); } }
+function next(){ if(PAGE*12<TOTAL){ PAGE++; loadGoods(); } }
+
+renderNav('index.html').then(() => {
+  loadCats(); loadHot(); loadGoods();
+});
+document.getElementById('kw').addEventListener('keydown', e => { if(e.key==='Enter'){ PAGE=1; loadGoods(); } });
+</script>
+</body>
+</html>
