@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发布商品 - 校园易站</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>易</text></svg>">
+</head>
+<body>
+<div class="nav" id="nav"></div>
+<div class="container" style="max-width:640px;">
+  <div class="card">
+    <h2 class="page-title">发布闲置</h2>
+    <div class="msg" id="msg"></div>
+    <div class="form-row"><label>标题</label><input id="title" maxlength="100" placeholder="如：九成新山地自行车"></div>
+    <div class="grid grid-2">
+      <div class="form-row"><label>分类</label><select id="cat"></select></div>
+      <div class="form-row"><label>价格（元）</label><input id="price" type="number" min="0.01" step="0.01" placeholder="19.90"></div>
+    </div>
+    <div class="form-row"><label>库存数量</label><input id="stock" type="number" min="1" value="1"></div>
+    <div class="form-row"><label>描述</label><textarea id="desc" placeholder="成色、入手渠道、交易方式…"></textarea></div>
+    <div class="form-row"><label>封面图URL（选填）</label><input id="cover" placeholder="https://…"></div>
+    <button class="btn" onclick="submitGoods()">提交审核</button>
+    <span class="muted" style="margin-left:10px;">新商品需管理员审核后上架（RBAC 商品审核权限）</span>
+  </div>
+  <div class="card">
+    <h3>我发布的商品</h3>
+    <div id="mine"></div>
+  </div>
+</div>
+<script src="js/common.js"></script>
+<script>
+async function init(){
+  let me;
+  try{ me = await requireLogin(); }catch(e){ return; }
+  // 未开通卖家权限 → 引导开通
+  const hasSeller = hasRole(me, 'seller');
+  if(!hasSeller){
+    if(confirm('开通卖家权限后才能发布商品，是否立即开通？')){
+      await api('/api/auth/become-seller', {method:'POST'});
+      showMsg('msg', '已开通卖家权限', true);
+    } else { location.href='index.html'; return; }
+  }
+  const cats = await api('/api/goods/categories');
+  const sel = document.getElementById('cat');
+  cats.forEach(c => { const o=document.createElement('option'); o.value=c.id; o.textContent=c.name; sel.appendChild(o); });
+  loadMine();
+}
+async function submitGoods(){
+  try{
+    const body = {
+      title: document.getElementById('title').value.trim(),
+      category_id: parseInt(document.getElementById('cat').value)||0,
+      price: parseFloat(document.getElementById('price').value),
+      stock: parseInt(document.getElementById('stock').value)||1,
+      description: document.getElementById('desc').value.trim(),
+      cover: document.getElementById('cover').value.trim(),
+    };
+    if(!body.title){ showMsg('msg','请填写标题', false); return; }
+    if(!(body.price>0)){ showMsg('msg','请填写正确的价格', false); return; }
+    const r = await api('/api/goods', {method:'POST', body});
+    showMsg('msg', r.msg, true);
+    ['title','price','desc','cover'].forEach(id=>document.getElementById(id).value='');
+    loadMine();
+  }catch(e){ showMsg('msg', e.message, false); }
+}
+async function loadMine(){
+  const rows = await api('/api/goods/mine');
+  const box = document.getElementById('mine');
+  if(!rows.length){ box.innerHTML = '<div class="empty">还没有发布过商品</div>'; return; }
+  box.innerHTML = '<table><tr><th>ID</th><th>标题</th><th>价格</th><th>状态</th><th>操作</th></tr>' +
+    rows.map(g => '<tr><td>'+g.id+'</td><td><a href="goods_detail.html?id='+g.id+'">'+esc(g.title)+'</a></td>'
+      + '<td>'+money(g.price)+'</td><td>'+badge(g.status, STATUS_GOODS)+'</td>'
+      + '<td>'+(g.status===1?'<button class="btn btn-danger btn-sm" onclick="down('+g.id+')">下架</button>':'')+'</td></tr>').join('') + '</table>';
+}
+async function down(gid){
+  if(!confirm('确认下架该商品？')) return;
+  try{ await api('/api/goods/'+gid+'/down', {method:'POST'}); loadMine(); }catch(e){ alert(e.message); }
+}
+renderNav('publish_goods.html').then(init);
+</script>
+</body>
+</html>
