@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>快递大厅 - 校园易站</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>易</text></svg>">
+</head>
+<body>
+<div class="nav" id="nav"></div>
+<div class="container">
+  <div class="flex-between">
+    <h1 class="page-title">快递代拿大厅</h1>
+    <div class="actions">
+      <a class="btn" href="publish_parcel.html">+ 发布代拿需求</a>
+      <button class="btn btn-outline" onclick="toggleCourier()" id="courierBtn">开通跑腿者身份</button>
+    </div>
+  </div>
+  <div class="msg" id="msg"></div>
+  <div id="courierTip" class="card muted" style="display:none;">你已开通跑腿者身份：可直接在下方点击「接单」，完成后跑腿费自动入账。</div>
+  <div class="card">
+    <h3 style="margin-bottom:12px;">待接单（视图隔离 · v_parcel_hall 只展示待接单）</h3>
+    <div id="hall"></div>
+  </div>
+  <div class="card">
+    <h3 style="margin-bottom:12px;">我接的单</h3>
+    <div id="taken"></div>
+  </div>
+</div>
+<script src="js/common.js"></script>
+<script>
+async function init(){
+  const me = await loadUser();
+  if(me){
+    const isC = hasRole(me,'courier') || me.is_courier;
+    if(isC){
+      document.getElementById('courierBtn').style.display = 'none';
+      document.getElementById('courierTip').style.display = 'block';
+    }
+  }
+  loadHall(); loadTaken();
+}
+async function loadHall(){
+  try{
+    const rows = await api('/api/parcels/hall');
+    const box = document.getElementById('hall');
+    if(!rows.length){ box.innerHTML = '<div class="empty">暂无待接单的代拿需求</div>'; return; }
+    box.innerHTML = '<table><tr><th>订单号</th><th>取件点</th><th>送达地址</th><th>快递公司</th><th>跑腿费</th><th>发布时间</th><th>操作</th></tr>' +
+      rows.map(p => '<tr><td>'+p.order_no+'</td><td>'+esc(p.point_name)+'</td><td>'+esc(p.deliver_address)+'</td>'
+        + '<td>'+esc(p.express_company||'-')+'</td><td class="text-danger">'+money(p.fee)+'</td>'
+        + '<td>'+fmtTime(p.created_at)+'</td>'
+        + '<td><button class="btn btn-sm" onclick="accept('+p.id+')">接单</button></td></tr>').join('') + '</table>';
+  }catch(e){}
+}
+async function loadTaken(){
+  try{
+    const rows = await api('/api/parcels/taken');
+    const box = document.getElementById('taken');
+    if(!rows.length){ box.innerHTML = '<div class="empty">还没有接过单</div>'; return; }
+    box.innerHTML = '<table><tr><th>订单号</th><th>发布人</th><th>取件点</th><th>送达地址</th><th>跑腿费</th><th>状态</th><th>操作</th></tr>' +
+      rows.map(p => '<tr><td>'+p.order_no+'</td><td>'+esc(p.publisher_name)+'</td><td>'+esc(p.point_name)+'</td>'
+        + '<td>'+esc(p.deliver_address)+'</td><td>'+money(p.fee)+'</td>'
+        + '<td>'+badge(p.status, STATUS_PARCEL)+'</td>'
+        + '<td>'+(p.status===1||p.status===2 ? '<button class="btn btn-sm" onclick="complete('+p.id+')">完成配送</button>' : '')+'</td></tr>').join('') + '</table>';
+  }catch(e){}
+}
+async function accept(oid){
+  try{
+    const me = await requireLogin();
+    if(!(hasRole(me,'courier') || me.is_courier)){
+      showMsg('msg','请先点击右上角「开通跑腿者身份」', false);
+      return;
+    }
+    await api('/api/parcels/'+oid+'/accept', {method:'POST'});
+    showMsg('msg','接单成功，请尽快取件配送', true);
+    loadHall(); loadTaken();
+  }catch(e){ showMsg('msg', e.message, false); }
+}
+async function complete(oid){
+  try{
+    await requireLogin();
+    await api('/api/parcels/'+oid+'/complete', {method:'POST'});
+    showMsg('msg','已确认送达，跑腿费已入账', true);
+    loadHall(); loadTaken();
+  }catch(e){ showMsg('msg', e.message, false); }
+}
+async function toggleCourier(){
+  try{
+    await requireLogin();
+    await api('/api/auth/become-courier', {method:'POST'});
+    showMsg('msg','已开通跑腿者身份', true);
+    document.getElementById('courierBtn').style.display = 'none';
+    document.getElementById('courierTip').style.display = 'block';
+    await loadUser();
+  }catch(e){ showMsg('msg', e.message, false); }
+}
+renderNav('parcels.html').then(init);
+</script>
+</body>
+</html>
